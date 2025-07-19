@@ -4,3 +4,4 @@ venv
 vit-gpt2-coco-finetuned-from-scratch
 data
 ./notebooks
+__pycache__ 
