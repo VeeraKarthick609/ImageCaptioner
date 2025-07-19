@@ -1,3 +1,5 @@
 .env
 venv
 .idea
+vit-gpt2-coco-finetuned-from-scratch
+./notebooks/coco_data
