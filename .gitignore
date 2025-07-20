@@ -3,5 +3,6 @@ venv
 .idea
 vit-gpt2-coco-finetuned-from-scratch
 data
-./notebooks
+notebooks
 __pycache__ 
+saved_models
