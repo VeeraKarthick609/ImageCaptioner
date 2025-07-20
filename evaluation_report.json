@@ -1,0 +1,169 @@
+{
+  "model_performance": {
+    "success_rate": 1.0,
+    "average_bleu1": 0.5604805914115125,
+    "average_bleu2": 0.2695615773115773,
+    "average_meteor": 0.5328505559507379,
+    "bleu1_std": 0.20285935577725597,
+    "total_evaluated": 200,
+    "successful_generations": 200
+  },
+  "caption_statistics": {
+    "length_stats": {
+      "mean": 11.425,
+      "std": 2.532661643409952,
+      "min": 6.0,
+      "max": 19.0,
+      "median": 11.0
+    },
+    "vocabulary_diversity": {
+      "total_words": 2285,
+      "unique_words": 191,
+      "vocabulary_diversity": 0.08358862144420132,
+      "most_common": [
+        [
+          "a",
+          416
+        ],
+        [
+          ".",
+          200
+        ],
+        [
+          "in",
+          89
+        ],
+        [
+          "is",
+          83
+        ],
+        [
+          "on",
+          77
+        ],
+        [
+          "the",
+          62
+        ],
+        [
+          "dog",
+          52
+        ],
+        [
+          "boy",
+          44
+        ],
+        [
+          "man",
+          40
+        ],
+        [
+          "and",
+          40
+        ]
+      ]
+    }
+  },
+  "sample_captions": [
+    {
+      "generated": "a little girl in a pink dress is climbing a wooden wooden wooden structure .",
+      "reference": "a child in a pink dress is climbing up a set of stairs in an <UNK> way .",
+      "bleu1": 0.6
+    },
+    {
+      "generated": "a little girl in a pink dress is climbing a wooden wooden wooden structure .",
+      "reference": "a girl going into a wooden building .",
+      "bleu1": 0.3333333333333333
+    },
+    {
+      "generated": "a little girl in a pink dress is climbing a wooden wooden wooden structure .",
+      "reference": "a little girl climbing into a wooden playhouse .",
+      "bleu1": 0.4666666666666667
+    },
+    {
+      "generated": "a little girl in a pink dress is climbing a wooden wooden wooden structure .",
+      "reference": "a little girl climbing the stairs to her playhouse .",
+      "bleu1": 0.3333333333333333
+    },
+    {
+      "generated": "a little girl in a pink dress is climbing a wooden wooden wooden structure .",
+      "reference": "a little girl in a pink dress going into a wooden <UNK> .",
+      "bleu1": 0.6666666666666666
+    },
+    {
+      "generated": "two dogs are fighting on a paved road .",
+      "reference": "two dogs of different breeds looking at each other on the road .",
+      "bleu1": 0.5555555555555556
+    },
+    {
+      "generated": "two dogs are fighting on a paved road .",
+      "reference": "two dogs on pavement moving toward each other .",
+      "bleu1": 0.4444444444444444
+    },
+    {
+      "generated": "a little girl is sitting in front of a rainbow painting .",
+      "reference": "a little girl covered in paint sits in front of a painted rainbow with her hands in a bowl .",
+      "bleu1": 0.75
+    },
+    {
+      "generated": "a little girl is sitting in front of a rainbow painting .",
+      "reference": "a little girl is sitting in front of a large painted rainbow .",
+      "bleu1": 0.9166666666666666
+    },
+    {
+      "generated": "a little girl is sitting in front of a rainbow painting .",
+      "reference": "a small girl in the grass plays with <UNK> in front of a white canvas with a rainbow on it .",
+      "bleu1": 0.6666666666666666
+    },
+    {
+      "generated": "a man lays on a bench with his dog .",
+      "reference": "a man lays on the bench to which a white dog is also tied .",
+      "bleu1": 0.8
+    },
+    {
+      "generated": "a man lays on a bench with his dog .",
+      "reference": "a man sleeping on a bench outside with a white and black dog sitting next to him .",
+      "bleu1": 0.8
+    },
+    {
+      "generated": "a man lays on a bench with his dog .",
+      "reference": "a shirtless man lies on a park bench with his dog .",
+      "bleu1": 0.9
+    },
+    {
+      "generated": "a man lays on a bench with his dog .",
+      "reference": "man laying on bench holding leash of dog sitting on ground",
+      "bleu1": 0.4
+    },
+    {
+      "generated": "a man with glasses and a hat is wearing a hat .",
+      "reference": "a man in an orange hat starring at something .",
+      "bleu1": 0.3333333333333333
+    },
+    {
+      "generated": "a man with glasses and a hat is wearing a hat .",
+      "reference": "the man with pierced ears is wearing glasses and an orange hat .",
+      "bleu1": 0.6666666666666666
+    },
+    {
+      "generated": "a little girl in pink is playing on a red rope .",
+      "reference": "a child playing on a rope net .",
+      "bleu1": 0.5
+    },
+    {
+      "generated": "a little girl in pink is playing on a red rope .",
+      "reference": "a little girl climbing on red <UNK> .",
+      "bleu1": 0.5
+    },
+    {
+      "generated": "a little girl in pink is playing on a red rope .",
+      "reference": "a little girl in pink climbs a rope bridge at the park .",
+      "bleu1": 0.6666666666666666
+    },
+    {
+      "generated": "a little girl in pink is playing on a red rope .",
+      "reference": "a small child <UNK> onto the red ropes at the playground .",
+      "bleu1": 0.25
+    }
+  ]
+}
