@@ -45,7 +45,7 @@ def load_teacher_model(model_path, vocab_size, device):
     
     teacher = CaptioningTeacher(
         vocab_size=vocab_size,
-        embed_size=512,  # Match your teacher model config
+        embed_size=512,  
         num_heads=8,
         num_decoder_layers=4,
         dropout=0.15
@@ -67,7 +67,8 @@ def train_student_with_kd():
     batch_size = 16  # Can use larger batch for student
     num_epochs = 20
     temperature = 4.0
-    alpha = 0.7  # Weight for KD loss
+    alpha = 0.8  # Weight for KD loss
+    beta = 0.3   # Weight for feature-based distillation loss
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -112,11 +113,20 @@ def train_student_with_kd():
     print(f"Teacher parameters: {teacher_params:,}")
     print(f"Student parameters: {student_params:,}")
     print(f"Compression ratio: {teacher_params/student_params:.1f}x")
+
+    student_feature_dim = 256 
+    teacher_feature_dim = 512 
+    feature_projection = nn.Linear(student_feature_dim, teacher_feature_dim).to(device)
     
     # Loss and optimizer
     kd_criterion = KnowledgeDistillationLoss(alpha=alpha, temperature=temperature, 
                                            vocab_size=vocab_size, pad_idx=pad_idx)
-    optimizer = optim.AdamW(student.parameters(), lr=learning_rate, weight_decay=0.01)
+    # Add a simple MSE loss for comparing feature vectors
+    feature_loss_criterion = nn.MSELoss()
+    optimizer = optim.AdamW(
+        list(student.parameters()) + list(feature_projection.parameters()), 
+        lr=learning_rate, weight_decay=0.01
+    )
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
     
     scaler = GradScaler('cuda')
@@ -127,9 +137,11 @@ def train_student_with_kd():
     
     for epoch in range(num_epochs):
         student.train()
+        feature_projection.train()
         epoch_loss = 0
         epoch_ce_loss = 0
         epoch_kd_loss = 0
+        epoch_feat_loss = 0
         
         loop = tqdm(train_loader, total=len(train_loader), leave=True)
         for imgs, captions in loop:
@@ -145,29 +157,63 @@ def train_student_with_kd():
                 # Get teacher predictions (no gradients)
                 with torch.no_grad():
                     teacher_logits = teacher(imgs, captions_input)
+                    teacher_features = teacher.encoder.forward_features(imgs)
+                    teacher_features = teacher.encoder_projection(teacher_features) # Shape: (batch, 197, 512)
                 
                 # Get student predictions
                 student_logits = student(imgs, captions_input)
+                student_raw_features = student.encoder.forward_features(imgs)
+                if len(student_raw_features.shape) == 4:
+                    B, C, H, W = student_raw_features.shape
+                    student_raw_features = student_raw_features.view(B, C, H*W).permute(0, 2, 1)
+                else:
+                    student_raw_features = student_raw_features
                 
-                # Calculate combined loss
-                loss, ce_loss, kd_loss = kd_criterion(student_logits, teacher_logits, captions_target)
+                student_features = student.encoder_projection(student_raw_features)
+                
+                # --- Loss Calculation ---
+                # 1. Calculate original distillation loss (logits + cross-entropy)
+                logit_kd_loss, ce_loss, kd_loss = kd_criterion(student_logits, teacher_logits, captions_target)
+
+                # 2. NEW: Calculate feature distillation loss
+                # Project student features to match teacher's dimension for comparison
+                student_features_for_comparison = feature_projection(student_features)
+
+                 # We need to ensure features are comparable.
+                # The ViT encoder produces a class token + patch tokens. Let's use all of them.
+                # To handle potentially different sequence lengths (e.g., 197 vs 49),
+                # we can use average pooling across the sequence dimension.
+                teacher_features_pooled = torch.mean(teacher_features, dim=1)
+                student_features_pooled = torch.mean(student_features_for_comparison, dim=1)
+                
+                loss_features = feature_loss_criterion(student_features_pooled, teacher_features_pooled)
+                
+                # 3. NEW: Combine all losses into the final loss
+                # The original kd_loss is weighted by alpha, the new feature loss by beta.
+                # The remaining weight (1-beta) is applied to the logit-based loss.
+                loss = (1 - beta) * logit_kd_loss + beta * loss_features
             
-            # Backward pass
+            # Backward pass (uses the final combined 'loss')
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
+            # We need to clip gradients for both the student and the new projection layer
             torch.nn.utils.clip_grad_norm_(student.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(feature_projection.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
             
+            # --- Accumulate all loss components ---
             epoch_loss += loss.item()
             epoch_ce_loss += ce_loss
             epoch_kd_loss += kd_loss
+            epoch_feat_loss += loss_features.item()
             
             loop.set_description(f"Epoch [{epoch+1}/{num_epochs}]")
             loop.set_postfix({
                 'total_loss': loss.item(),
                 'ce_loss': ce_loss,
                 'kd_loss': kd_loss,
+                'feat_loss': loss_features.item(),
                 'lr': optimizer.param_groups[0]['lr']
             })
         
@@ -176,8 +222,9 @@ def train_student_with_kd():
         avg_loss = epoch_loss / len(train_loader)
         avg_ce_loss = epoch_ce_loss / len(train_loader)
         avg_kd_loss = epoch_kd_loss / len(train_loader)
+        avg_feat_loss = epoch_feat_loss / len(train_loader)
         
-        print(f"Epoch {epoch+1}: Loss: {avg_loss:.4f}, CE: {avg_ce_loss:.4f}, KD: {avg_kd_loss:.4f}")
+        print(f"Epoch {epoch+1}: Loss: {avg_loss:.4f}, CE: {avg_ce_loss:.4f}, KD: {avg_kd_loss:.4f}, Feat: {avg_feat_loss:.4f}")
         
         # Save best model
         if avg_loss < best_loss:

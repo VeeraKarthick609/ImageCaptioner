@@ -28,7 +28,7 @@ class PositionalEncoding(nn.Module):
 
 
 class CaptioningTeacher(nn.Module):
-    def __init__(self, vocab_size, embed_size=768, num_heads=12, num_decoder_layers=6, dropout=0.1):
+    def __init__(self, vocab_size, embed_size=384, num_heads=12, num_decoder_layers=6, dropout=0.1):
         super(CaptioningTeacher, self).__init__()
         
         # --- ENCODER ---
@@ -78,7 +78,7 @@ class CaptioningTeacher(nn.Module):
 
     def forward(self, images, captions):
         # --- ENCODER FORWARD ---
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
             image_features = self.encoder.forward_features(images)  # Shape: (batch_size, 197, encoder_dim)
             image_features = self.encoder_projection(image_features)  # Shape: (batch_size, 197, embed_size)
             image_features = image_features.permute(1, 0, 2)  # Shape: (197, batch_size, embed_size)

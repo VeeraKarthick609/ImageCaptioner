@@ -126,9 +126,7 @@ if __name__ == "__main__":
             for i, line in enumerate(f.readlines()[1:]):
                 line = line.strip()
                 
-                # --- THIS IS THE FIX ---
                 parts = line.strip().split(',', 1)
-                # --- END OF FIX ---
 
                 if i < 5:
                     print(f"[DEBUG] Line {i+1}: '{line[:40]}...' -> Split into {len(parts)} parts.")
