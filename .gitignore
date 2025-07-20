@@ -6,3 +6,4 @@ data
 notebooks
 __pycache__ 
 saved_models
+evaluation_report.json
