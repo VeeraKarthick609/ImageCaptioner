@@ -65,10 +65,10 @@ def train_student_with_kd():
     # Hyperparameters
     learning_rate = 2e-4
     batch_size = 16  # Can use larger batch for student
-    num_epochs = 20
+    num_epochs = 30
     temperature = 4.0
     alpha = 0.8  # Weight for KD loss
-    beta = 0.3   # Weight for feature-based distillation loss
+    beta = 0.2   # Weight for feature-based distillation loss
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -101,7 +101,7 @@ def train_student_with_kd():
     # Initialize student model
     student = CaptioningStudent(
         vocab_size=vocab_size,
-        embed_size=256,  # Much smaller than teacher
+        embed_size=384,  # Much smaller than teacher
         num_heads=4,
         num_decoder_layers=2,
         dropout=0.1
@@ -114,7 +114,7 @@ def train_student_with_kd():
     print(f"Student parameters: {student_params:,}")
     print(f"Compression ratio: {teacher_params/student_params:.1f}x")
 
-    student_feature_dim = 256 
+    student_feature_dim = 384 
     teacher_feature_dim = 512 
     feature_projection = nn.Linear(student_feature_dim, teacher_feature_dim).to(device)
     

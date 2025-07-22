@@ -11,7 +11,7 @@ class CaptioningStudent(nn.Module):
         super(CaptioningStudent, self).__init__()
         
         # Much smaller encoder - use a lightweight model
-        self.encoder = timm.create_model('mobilevit_xxs', pretrained=True, num_classes=0)
+        self.encoder = timm.create_model('mobilevit_s', pretrained=True, num_classes=0)
         # Alternative: 'efficientnet_b0', 'resnet18', 'mobilenetv3_small_100'
         
         encoder_dim = self.encoder.num_features
