@@ -10,36 +10,43 @@ from tqdm import tqdm
 import os
 
 from models import CaptioningTeacher
-from student_model import CaptioningStudent
+from student_model import CaptioningStudent # Your CNN-LSTM student
 from data_loader import get_loader
-from torch.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler, autocast
 
+# KnowledgeDistillationLoss class remains the same
 class KnowledgeDistillationLoss(nn.Module):
+    # ... (no changes needed here) ...
     """Combined loss for knowledge distillation"""
     
     def __init__(self, alpha=0.7, temperature=4.0, vocab_size=None, pad_idx=None):
         super().__init__()
-        self.alpha = alpha  # Weight for distillation loss
+        self.alpha = alpha
         self.temperature = temperature
         self.ce_loss = nn.CrossEntropyLoss(ignore_index=pad_idx)
         
     def forward(self, student_logits, teacher_logits, targets):
-        # Standard cross-entropy loss
-        ce_loss = self.ce_loss(student_logits.view(-1, student_logits.size(-1)), targets.view(-1))
+        # --- FIX IS HERE ---
+        # Use .reshape() instead of .view() for safety against non-contiguous tensors
+        ce_loss = self.ce_loss(student_logits.reshape(-1, student_logits.size(-1)), targets)
         
-        # Knowledge distillation loss (soft targets)
         student_soft = F.log_softmax(student_logits / self.temperature, dim=-1)
         teacher_soft = F.softmax(teacher_logits / self.temperature, dim=-1)
         
-        # KL divergence loss
-        kd_loss = F.kl_div(student_soft, teacher_soft, reduction='batchmean') * (self.temperature ** 2)
+        # Also use .reshape() here for consistency and safety
+        student_log_probs_flat = student_soft.reshape(-1, student_soft.size(-1))
+        teacher_probs_flat = teacher_soft.reshape(-1, teacher_soft.size(-1))
         
-        # Combined loss
+        kd_loss = F.kl_div(student_log_probs_flat, teacher_probs_flat, reduction='batchmean') * (self.temperature ** 2)
+        
         total_loss = self.alpha * kd_loss + (1 - self.alpha) * ce_loss
         
         return total_loss, ce_loss.item(), kd_loss.item()
 
+
+# load_teacher_model function remains the same
 def load_teacher_model(model_path, vocab_size, device):
+    # ... (no changes needed here) ...
     """Load the pre-trained teacher model"""
     checkpoint = torch.load(model_path, map_location=device)
     
@@ -52,170 +59,135 @@ def load_teacher_model(model_path, vocab_size, device):
     ).to(device)
     
     teacher.load_state_dict(checkpoint['model_state_dict'])
-    teacher.eval()  # Set to evaluation mode
-    
-    # Freeze teacher parameters
+    teacher.eval()
     for param in teacher.parameters():
         param.requires_grad = False
-        
     print("Teacher model loaded successfully!")
     return teacher
 
+
 def train_student_with_kd():
-    # Hyperparameters
-    learning_rate = 2e-4
-    batch_size = 16  # Can use larger batch for student
+    # --- Hyperparameters ---
+    learning_rate = 3e-4
+    batch_size = 32
     num_epochs = 30
     temperature = 4.0
-    alpha = 0.8  # Weight for KD loss
-    beta = 0.2   # Weight for feature-based distillation loss
-    
+    # Note: alpha and beta will now be set inside the epoch loop
+
+    # ... (device setup, data loading, model loading remains the same) ...
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-    # Data loading
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
+        transforms.Resize((224, 224)), transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-
     train_loader, dataset = get_loader(
-        root_folder="data/flickr8k/Images",
-        annotation_file="data/flickr8k/captions_clean.csv",
-        transform=transform,
-        batch_size=batch_size,
-        num_workers=4,
-        shuffle=True
+        root_folder="data/flickr8k/Images", annotation_file="data/flickr8k/captions_clean.csv",
+        transform=transform, batch_size=batch_size, num_workers=4, shuffle=True
     )
-
     vocab_size = len(dataset.vocab)
     pad_idx = dataset.vocab.stoi["<PAD>"]
     
-    # Load teacher model
     teacher = load_teacher_model('saved_models/best_teacher_model.pth', vocab_size, device)
+    student = CaptioningStudent(vocab_size=vocab_size, embed_size=256, hidden_size=512, num_layers=2, dropout=0.5).to(device)
     
-    # Initialize student model
-    student = CaptioningStudent(
-        vocab_size=vocab_size,
-        embed_size=384,  # Much smaller than teacher
-        num_heads=4,
-        num_decoder_layers=2,
-        dropout=0.1
-    ).to(device)
-    
-    # Count parameters
-    teacher_params = sum(p.numel() for p in teacher.parameters())
-    student_params = sum(p.numel() for p in student.parameters())
-    print(f"Teacher parameters: {teacher_params:,}")
-    print(f"Student parameters: {student_params:,}")
-    print(f"Compression ratio: {teacher_params/student_params:.1f}x")
-
-    student_feature_dim = 384 
-    teacher_feature_dim = 512 
+    student_feature_dim = 2048
+    teacher_feature_dim = 512
     feature_projection = nn.Linear(student_feature_dim, teacher_feature_dim).to(device)
     
-    # Loss and optimizer
-    kd_criterion = KnowledgeDistillationLoss(alpha=alpha, temperature=temperature, 
-                                           vocab_size=vocab_size, pad_idx=pad_idx)
-    # Add a simple MSE loss for comparing feature vectors
+    # --- Loss and Optimizer ---
+    # We instantiate the KD loss here, but its alpha value will be ignored inside the loop
+    kd_criterion = KnowledgeDistillationLoss(temperature=temperature, vocab_size=vocab_size, pad_idx=pad_idx)
     feature_loss_criterion = nn.MSELoss()
     optimizer = optim.AdamW(
         list(student.parameters()) + list(feature_projection.parameters()), 
-        lr=learning_rate, weight_decay=0.01
+        lr=learning_rate, weight_decay=1e-4
     )
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
-    
-    scaler = GradScaler('cuda')
-    
-    # Training loop
-    print("Starting Knowledge Distillation training...")
+    scaler = GradScaler()
+
+    # --- Training Loop with Phased Learning ---
+    print("Starting Staged Knowledge Distillation for CNN-LSTM Student...")
     best_loss = float('inf')
     
     for epoch in range(num_epochs):
         student.train()
         feature_projection.train()
+        
+        # --- NEW: SET ALPHA AND BETA BASED ON THE CURRENT EPOCH ---
+        if epoch < 10:
+            # Phase 1: Focus on CE loss (Grounding)
+            alpha = 0.3  # Low weight for logit distillation
+            beta = 0.1   # Low weight for feature distillation
+            phase = 1
+        elif epoch < 20:
+            # Phase 2: Balanced distillation
+            alpha = 0.7
+            beta = 0.3
+            phase = 2
+        else:
+            # Phase 3: Heavy distillation (Fine-tuning)
+            alpha = 0.9
+            beta = 0.5
+            phase = 3
+        
+        # We need to update the alpha inside the criterion object for the logit loss
+        kd_criterion.alpha = alpha
+
         epoch_loss = 0
         epoch_ce_loss = 0
         epoch_kd_loss = 0
         epoch_feat_loss = 0
         
         loop = tqdm(train_loader, total=len(train_loader), leave=True)
+        # Add phase info to the tqdm description
+        loop.set_description(f"Phase {phase} | Epoch [{epoch+1}/{num_epochs}]")
+
         for imgs, captions in loop:
-            imgs = imgs.to(device, non_blocking=True)
-            captions = captions.to(device, non_blocking=True)
-            
-            captions_input = captions[:-1, :]
-            captions_target = captions[1:, :]
+            imgs = imgs.to(device)
+            captions = captions.to(device)
             
             optimizer.zero_grad()
             
-            with autocast('cuda'):
-                # Get teacher predictions (no gradients)
+            with autocast():
                 with torch.no_grad():
-                    teacher_logits = teacher(imgs, captions_input)
-                    teacher_features = teacher.encoder.forward_features(imgs)
-                    teacher_features = teacher.encoder_projection(teacher_features) # Shape: (batch, 197, 512)
-                
-                # Get student predictions
-                student_logits = student(imgs, captions_input)
-                student_raw_features = student.encoder.forward_features(imgs)
-                if len(student_raw_features.shape) == 4:
-                    B, C, H, W = student_raw_features.shape
-                    student_raw_features = student_raw_features.view(B, C, H*W).permute(0, 2, 1)
-                else:
-                    student_raw_features = student_raw_features
-                
-                student_features = student.encoder_projection(student_raw_features)
-                
-                # --- Loss Calculation ---
-                # 1. Calculate original distillation loss (logits + cross-entropy)
-                logit_kd_loss, ce_loss, kd_loss = kd_criterion(student_logits, teacher_logits, captions_target)
+                    teacher_logits = teacher(imgs, captions[:-1, :])
+                    teacher_features_seq = teacher.encoder.forward_features(imgs)
+                    teacher_features_seq = teacher.encoder_projection(teacher_features_seq)
+                    
+                student_logits = student(imgs, captions)
+                student_features = student.get_image_features(imgs)
+                targets_flat = captions[1:, :].permute(1, 0).reshape(-1)
 
-                # 2. NEW: Calculate feature distillation loss
-                # Project student features to match teacher's dimension for comparison
+                # 1. Logit Distillation Loss (uses the updated alpha)
+                # The first returned value is the combined (alpha * kd + (1-alpha) * ce)
+                logit_kd_loss, ce_loss, kd_loss = kd_criterion(student_logits, teacher_logits, targets_flat)
+
+                # 2. Feature Distillation Loss
+                teacher_features_pooled = torch.mean(teacher_features_seq, dim=1)
                 student_features_for_comparison = feature_projection(student_features)
-
-                 # We need to ensure features are comparable.
-                # The ViT encoder produces a class token + patch tokens. Let's use all of them.
-                # To handle potentially different sequence lengths (e.g., 197 vs 49),
-                # we can use average pooling across the sequence dimension.
-                teacher_features_pooled = torch.mean(teacher_features, dim=1)
-                student_features_pooled = torch.mean(student_features_for_comparison, dim=1)
+                loss_features = feature_loss_criterion(student_features_for_comparison, teacher_features_pooled)
                 
-                loss_features = feature_loss_criterion(student_features_pooled, teacher_features_pooled)
-                
-                # 3. NEW: Combine all losses into the final loss
-                # The original kd_loss is weighted by alpha, the new feature loss by beta.
-                # The remaining weight (1-beta) is applied to the logit-based loss.
+                # 3. Combine all losses using the current phase's beta
                 loss = (1 - beta) * logit_kd_loss + beta * loss_features
             
-            # Backward pass (uses the final combined 'loss')
+            # --- Backward Pass ---
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            # We need to clip gradients for both the student and the new projection layer
             torch.nn.utils.clip_grad_norm_(student.parameters(), max_norm=1.0)
             torch.nn.utils.clip_grad_norm_(feature_projection.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
             
-            # --- Accumulate all loss components ---
+            # Update logs
             epoch_loss += loss.item()
             epoch_ce_loss += ce_loss
             epoch_kd_loss += kd_loss
             epoch_feat_loss += loss_features.item()
             
-            loop.set_description(f"Epoch [{epoch+1}/{num_epochs}]")
-            loop.set_postfix({
-                'total_loss': loss.item(),
-                'ce_loss': ce_loss,
-                'kd_loss': kd_loss,
-                'feat_loss': loss_features.item(),
-                'lr': optimizer.param_groups[0]['lr']
-            })
+            # Add alpha and beta to the postfix to see them change
+            loop.set_postfix({'loss': loss.item(), 'α': alpha, 'β': beta})
         
         scheduler.step()
         
@@ -224,30 +196,21 @@ def train_student_with_kd():
         avg_kd_loss = epoch_kd_loss / len(train_loader)
         avg_feat_loss = epoch_feat_loss / len(train_loader)
         
-        print(f"Epoch {epoch+1}: Loss: {avg_loss:.4f}, CE: {avg_ce_loss:.4f}, KD: {avg_kd_loss:.4f}, Feat: {avg_feat_loss:.4f}")
+        print(f"Epoch {epoch+1} (Phase {phase}) Summary -> Loss: {avg_loss:.4f}, CE: {avg_ce_loss:.4f}, KD: {avg_kd_loss:.4f}, Feat: {avg_feat_loss:.4f}")
         
-        # Save best model
         if avg_loss < best_loss:
             best_loss = avg_loss
-            if not os.path.exists('saved_models'):
-                os.makedirs('saved_models')
+            # It's good practice to include epoch and phase info in the saved file
             torch.save({
                 'epoch': epoch,
+                'phase': phase,
                 'model_state_dict': student.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
-                'vocab_size': vocab_size
-            }, 'saved_models/best_student_model.pth')
-            print(f"Best student model saved with loss: {avg_loss:.4f}")
-    
-    print(f"Knowledge Distillation completed! Best loss: {best_loss:.4f}")
-    
-    # Compare model sizes
-    teacher_size = sum(p.numel() * 4 for p in teacher.parameters()) / (1024**2)  # MB
-    student_size = sum(p.numel() * 4 for p in student.parameters()) / (1024**2)  # MB
-    print(f"Teacher model size: {teacher_size:.1f} MB")
-    print(f"Student model size: {student_size:.1f} MB")
-    print(f"Size reduction: {teacher_size/student_size:.1f}x smaller")
+            }, 'saved_models/best_student_model_lstm_staged.pth')
+            print(f"Best LSTM student model saved with loss: {avg_loss:.4f}")
+
+    print(f"Staged Knowledge Distillation completed! Best loss: {best_loss:.4f}")
+
 
 if __name__ == "__main__":
     train_student_with_kd()
