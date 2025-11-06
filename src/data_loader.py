@@ -101,8 +101,17 @@ class Collate:
 def get_loader(root_folder, annotation_file, transform, batch_size=32, num_workers=0, shuffle=True, pin_memory=True):
     dataset = FlickrDataset(root_folder, annotation_file, transform=transform)
     pad_idx = dataset.vocab.stoi["<PAD>"]
-    loader = DataLoader(dataset=dataset, batch_size=batch_size, num_workers=num_workers,
-                        shuffle=shuffle, pin_memory=pin_memory, collate_fn=Collate(pad_idx=pad_idx))
+    
+    # Ensure drop_last=True to avoid batch size mismatches during training
+    # Also ensure batch_size doesn't exceed dataset size
+    actual_batch_size = min(batch_size, len(dataset))
+    
+    # Use a more conservative batch size to reduce shape mismatches
+    if actual_batch_size > 16:
+        actual_batch_size = 16  # Use smaller batches for more stable training
+    
+    loader = DataLoader(dataset=dataset, batch_size=actual_batch_size, num_workers=num_workers,
+                        shuffle=shuffle, pin_memory=pin_memory, collate_fn=Collate(pad_idx=pad_idx), drop_last=True)
     return loader, dataset
 
 if __name__ == "__main__":

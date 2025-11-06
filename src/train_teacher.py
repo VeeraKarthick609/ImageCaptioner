@@ -12,7 +12,7 @@ from models import CaptioningTeacher
 from data_loader import get_loader
 
 # For mixed precision training
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 def calculate_bleu_score(predicted_caption, target_caption):
     """Simple BLEU-1 score calculation for monitoring"""
@@ -36,7 +36,7 @@ def validate_model(model, data_loader, criterion, device, vocab):
             captions_input = captions[:-1, :]
             captions_target = captions[1:, :]
             
-            with autocast():
+            with autocast('cuda'):
                 outputs = model(imgs, captions_input)
                 loss = criterion(
                     outputs.reshape(-1, outputs.shape[2]),
@@ -174,7 +174,7 @@ def train():
     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2, eta_min=1e-6)
     
     # Initialize GradScaler for mixed precision
-    scaler = GradScaler()
+    scaler = GradScaler('cuda')
 
     # Training history
     train_losses = []
@@ -197,7 +197,7 @@ def train():
             captions_target = captions[1:, :]
 
             # Forward pass with mixed precision
-            with autocast():
+            with autocast('cuda'):
                 outputs = model(imgs, captions_input)
                 loss = criterion(
                     outputs.reshape(-1, outputs.shape[2]),
