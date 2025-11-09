@@ -202,26 +202,54 @@ class DistillationLoss(nn.Module):
 
 class FeatureProjector(nn.Module):
     """
-    Feature projection layers to match teacher and student feature dimensions
+    Projects teacher features to student feature space
+    Handles both feature dimension and sequence length mismatches
     """
-    def __init__(self, teacher_dim, student_dim):
+    def __init__(self, teacher_dim, student_dim, teacher_seq_len=197, student_seq_len=64):
         super(FeatureProjector, self).__init__()
-        
         self.teacher_dim = teacher_dim
         self.student_dim = student_dim
+        self.teacher_seq_len = teacher_seq_len
+        self.student_seq_len = student_seq_len
         
+        # Feature dimension projection
         if teacher_dim != student_dim:
-            self.projection = nn.Sequential(
+            self.feature_projection = nn.Sequential(
                 nn.Linear(teacher_dim, student_dim),
                 nn.ReLU(),
                 nn.Dropout(0.1),
                 nn.LayerNorm(student_dim)
             )
         else:
-            self.projection = nn.Identity()
+            self.feature_projection = nn.Identity()
+        
+        # Sequence length alignment
+        if teacher_seq_len != student_seq_len:
+            # Use adaptive pooling to handle sequence length mismatch
+            self.seq_projection = nn.AdaptiveAvgPool1d(student_seq_len)
+        else:
+            self.seq_projection = nn.Identity()
     
     def forward(self, features):
-        return self.projection(features)
+        """
+        Args:
+            features: (batch_size, teacher_seq_len, teacher_dim)
+        Returns:
+            projected_features: (batch_size, student_seq_len, student_dim)
+        """
+        # First project feature dimensions
+        projected = self.feature_projection(features)  # (batch_size, teacher_seq_len, student_dim)
+        
+        # Then handle sequence length mismatch
+        if self.teacher_seq_len != self.student_seq_len:
+            # Transpose for pooling: (batch_size, student_dim, teacher_seq_len)
+            projected = projected.transpose(1, 2)
+            # Pool to target sequence length: (batch_size, student_dim, student_seq_len)
+            projected = self.seq_projection(projected)
+            # Transpose back: (batch_size, student_seq_len, student_dim)
+            projected = projected.transpose(1, 2)
+        
+        return projected
 
 
 class TeacherWrapper(nn.Module):
@@ -281,8 +309,25 @@ def create_feature_projectors(teacher_model, student_model):
     
     student_encoder_dim = student_model.embed_size
     
-    print(f"Creating encoder projector: {teacher_encoder_dim} -> {student_encoder_dim}")
-    projectors['encoder'] = FeatureProjector(teacher_encoder_dim, student_encoder_dim)
+    # Dynamically detect student sequence length from encoder architecture
+    if hasattr(student_model.encoder, 'adaptive_pool'):
+        # Get the output size from adaptive pooling layer
+        pool_output_size = student_model.encoder.adaptive_pool.output_size
+        if isinstance(pool_output_size, tuple):
+            student_seq_len = pool_output_size[0] * pool_output_size[1]
+        else:
+            student_seq_len = pool_output_size * pool_output_size
+    else:
+        # Fallback to default
+        student_seq_len = 64
+    
+    print(f"Creating encoder projector: {teacher_encoder_dim} -> {student_encoder_dim}, seq_len: 197 -> {student_seq_len}")
+    projectors['encoder'] = FeatureProjector(
+        teacher_encoder_dim, 
+        student_encoder_dim,
+        teacher_seq_len=197,  # ViT tokens
+        student_seq_len=student_seq_len  # Dynamically detected CNN spatial locations
+    )
     
     # Hidden state projector (if needed)
     # This would depend on the specific dimensions of teacher and student hidden states
