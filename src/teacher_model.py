@@ -78,10 +78,10 @@ class CaptioningTeacher(nn.Module):
 
     def forward(self, images, captions):
         # --- ENCODER FORWARD ---
-        with torch.amp.autocast("cuda"):
-            image_features = self.encoder.forward_features(images)  # Shape: (batch_size, 197, encoder_dim)
-            image_features = self.encoder_projection(image_features)  # Shape: (batch_size, 197, embed_size)
-            image_features = image_features.permute(1, 0, 2)  # Shape: (197, batch_size, embed_size)
+        # Remove autocast to avoid precision issues during distillation
+        image_features = self.encoder.forward_features(images)  # Shape: (batch_size, 197, encoder_dim)
+        image_features = self.encoder_projection(image_features)  # Shape: (batch_size, 197, embed_size)
+        image_features = image_features.permute(1, 0, 2)  # Shape: (197, batch_size, embed_size)
 
         # --- DECODER FORWARD ---
         embed_captions = self.embedding(captions)
