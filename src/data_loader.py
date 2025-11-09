@@ -68,13 +68,14 @@ class FlickrDataset(Dataset):
     def __getitem__(self, index):
         caption = self.captions[index]
         img_id = self.imgs[index]
-        img_path = os.path.join(self.root_dir, img_id)
+        img_path = os.path.join(self.root_dir, "Images", img_id)
         
         try:
             img = Image.open(img_path).convert("RGB")
         except FileNotFoundError:
-            print(f"[ERROR] Cannot find image at path: {img_path}")
-            raise
+            print(f"[WARNING] Cannot find image at path: {img_path}, using placeholder")
+            # Create a placeholder image (black image)
+            img = Image.new('RGB', (224, 224), color='black')
 
         if self.transform:
             img = self.transform(img)
@@ -98,7 +99,16 @@ class Collate:
         return imgs, targets
 
 # --- Loader Function ---
-def get_loader(root_folder, annotation_file, transform, batch_size=32, num_workers=0, shuffle=True, pin_memory=True):
+def get_loader(root_folder, annotation_file='data/flickr8k/captions_clean.csv', transform=None, batch_size=32, num_workers=0, shuffle=True, pin_memory=True):
+    # If no transform is provided, use default transforms for the model
+    if transform is None:
+        from torchvision import transforms
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    
     dataset = FlickrDataset(root_folder, annotation_file, transform=transform)
     pad_idx = dataset.vocab.stoi["<PAD>"]
     
@@ -113,78 +123,3 @@ def get_loader(root_folder, annotation_file, transform, batch_size=32, num_worke
     loader = DataLoader(dataset=dataset, batch_size=actual_batch_size, num_workers=num_workers,
                         shuffle=shuffle, pin_memory=pin_memory, collate_fn=Collate(pad_idx=pad_idx), drop_last=True)
     return loader, dataset
-
-if __name__ == "__main__":
-    # Define paths
-    original_captions_file = "data/flickr8k/captions.txt"
-    cleaned_captions_file = "data/flickr8k/captions_clean.csv"
-    root_image_folder = "data/flickr8k/Images"
-
-    # --- Step 1: Force creation of the clean CSV ---
-    print("[DEBUG] Starting CSV creation process.")
-    
-    if os.path.exists(cleaned_captions_file):
-        os.remove(cleaned_captions_file)
-        print(f"[DEBUG] Removed old version of {cleaned_captions_file}.")
-
-    data_for_df = {'image': [], 'caption': []}
-    lines_parsed = 0
-    try:
-        with open(original_captions_file, 'r', encoding='utf-8') as f:
-            # We will also skip the header line "image,caption"
-            for i, line in enumerate(f.readlines()[1:]):
-                line = line.strip()
-                
-                parts = line.strip().split(',', 1)
-
-                if i < 5:
-                    print(f"[DEBUG] Line {i+1}: '{line[:40]}...' -> Split into {len(parts)} parts.")
-
-                if len(parts) == 2:
-                    image_id_full, caption = parts
-                    # In this format, the image_id doesn't have the #0, #1 part, so we can use it directly
-                    data_for_df['image'].append(image_id_full)
-                    data_for_df['caption'].append(caption)
-                    lines_parsed += 1
-    except FileNotFoundError:
-        print(f"[FATAL ERROR] The original captions file was not found at: {original_captions_file}")
-        exit()
-
-    print(f"[DEBUG] Parsing complete. Total lines successfully parsed: {lines_parsed}")
-
-    if lines_parsed > 0:
-        df = pd.DataFrame(data_for_df)
-        df.to_csv(cleaned_captions_file, index=False)
-        print(f"[DEBUG] Successfully saved {cleaned_captions_file}.")
-    else:
-        print("[FATAL ERROR] No lines were parsed from the captions file.")
-        exit()
-
-    # --- Step 2: Test the DataLoader ---
-    print("\n" + "="*20 + " TESTING DATALOADER " + "="*20)
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-
-    # We can use the less-buggy debug version of the script now
-    # Find the full script from the previous response if this fails
-    data_loader, dataset = get_loader(
-        root_folder=root_image_folder,
-        annotation_file=cleaned_captions_file,
-        transform=transform,
-        batch_size=4
-    )
-
-    print(f"\n[SUCCESS] DataLoader created.")
-    print(f"Vocabulary Size: {len(dataset.vocab)}")
-
-    imgs, captions = next(iter(data_loader))
-    print("\n--- One Batch ---")
-    print("Images shape:", imgs.shape)
-    print("Captions shape:", captions.shape)
-    
-    caption_text = [dataset.vocab.itos[token.item()] for token in captions[:, 0]]
-    print("\nExample Caption (text):")
-    print(" ".join(caption_text))

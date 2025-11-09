@@ -8,7 +8,7 @@ import os
 import json
 from collections import defaultdict
 
-from models import CaptioningTeacher
+from teacher_model import CaptioningTeacher
 from data_loader import get_loader
 
 # For mixed precision training

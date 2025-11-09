@@ -8,7 +8,7 @@ import sys
 # Add src directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
-from models import CaptioningTeacher
+from teacher_model import CaptioningTeacher
 from data_loader import Vocabulary
 
 @st.cache_resource

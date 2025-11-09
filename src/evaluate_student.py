@@ -11,7 +11,7 @@ import numpy as np
 
 # Import our models and data loader
 from models import CaptioningTeacher
-from student_model import CaptioningStudent # This is your CNN-LSTM student model
+from student_model import LightweightCaptioningStudent # This is the trained lightweight student model
 from data_loader import FlickrDataset
 
 # Import evaluation metrics
@@ -62,7 +62,7 @@ def generate_caption_transformer(model, image_tensor, vocabulary, device, max_le
 
 def generate_caption_lstm(model, image_tensor, vocabulary, device, max_length=50):
     """
-    Generates a caption for a single image using the CNN-LSTM Student model.
+    Generates a caption for a single image using the LightweightCaptioningStudent model.
     """
     model.eval()
     caption = []
@@ -70,12 +70,11 @@ def generate_caption_lstm(model, image_tensor, vocabulary, device, max_length=50
     with torch.no_grad():
         image_tensor = image_tensor.to(device).unsqueeze(0)
         
-        # --- Encoder Forward Pass (to get initial hidden state) ---
-        features = model.encoder(image_tensor)
-        features = features.view(features.size(0), -1)
-        features = model.relu(model.project_features(features))
+        # --- Extract and project features ---
+        features = model.get_image_features(image_tensor)
+        features = torch.relu(model.feature_projection(features))
         
-        # Initialize LSTM state with image features
+        # Initialize LSTM hidden states
         num_layers = model.lstm.num_layers
         hidden = features.unsqueeze(0).repeat(num_layers, 1, 1)
         cell = features.unsqueeze(0).repeat(num_layers, 1, 1)
@@ -92,7 +91,8 @@ def generate_caption_lstm(model, image_tensor, vocabulary, device, max_length=50
             # LSTM forward pass
             outputs, (hidden, cell) = model.lstm(embeddings, (hidden, cell))
             
-            # Get the vocabulary scores
+            # Apply dropout and get vocabulary scores
+            outputs = model.dropout(outputs)
             outputs = model.fc_out(outputs.squeeze(1))
             predicted_idx = outputs.argmax(1)
             
@@ -142,7 +142,7 @@ def evaluate_model(model, df, vocab, transform, device):
         # --- UPDATED: CHOOSE THE CORRECT GENERATION FUNCTION ---
         if isinstance(model, CaptioningTeacher):
             generated_caption = generate_caption_transformer(model, image_tensor, vocab, device)
-        elif isinstance(model, CaptioningStudent):
+        elif isinstance(model, LightweightCaptioningStudent):
             generated_caption = generate_caption_lstm(model, image_tensor, vocab, device)
         else:
             raise TypeError("Model type not recognized for evaluation.")
@@ -195,15 +195,15 @@ def main():
     teacher_model = CaptioningTeacher(vocab_size=vocab_size, embed_size=512, num_heads=8, num_decoder_layers=4, dropout=0.15)
     teacher_model.load_state_dict(teacher_checkpoint['model_state_dict'])
     
-    # --- Load Student Model (CNN-LSTM) ---
-    print("\n--- Loading CNN-LSTM Student Model ---")
-    student_checkpoint = torch.load('saved_models/best_student_model_lstm_staged.pth', map_location=device)
-    student_model = CaptioningStudent(
+    # --- Load Lightweight Student Model ---
+    print("\n--- Loading Lightweight Student Model ---")
+    student_checkpoint = torch.load('saved_models/best_lightweight_student_model.pth', map_location=device)
+    student_model = LightweightCaptioningStudent(
         vocab_size=vocab_size,
-        embed_size=256,
-        hidden_size=512,
-        num_layers=2,
-        dropout=0.5
+        embed_size=128,
+        hidden_size=256,
+        num_layers=1,
+        dropout=0.2
     )
     student_model.load_state_dict(student_checkpoint['model_state_dict'])
     
@@ -217,7 +217,7 @@ def main():
     print("="*80)
     
     teacher_size = os.path.getsize('saved_models/best_teacher_model.pth') / (1024**2)
-    student_size = os.path.getsize('saved_models/best_student_model_lstm_staged.pth') / (1024**2)
+    student_size = os.path.getsize('saved_models/best_lightweight_student_model.pth') / (1024**2)
 
     print(f"{'Metric':<25} | {'Teacher (ViT-TF)':<20} | {'Student (CNN-LSTM)':<20} | {'Improvement/Retained'}")
     print("-" * 80)

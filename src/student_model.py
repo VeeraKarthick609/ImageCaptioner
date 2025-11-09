@@ -5,7 +5,7 @@ import torch.nn as nn
 import torchvision.models as models
 import torch.nn.functional as F
 
-class CaptioningStundent(nn.Module):
+class CaptioningStudent(nn.Module):
     """
     Improved Student Model with better architecture and attention mechanisms
     """
@@ -18,7 +18,7 @@ class CaptioningStundent(nn.Module):
             num_layers (int): Number of layers in the LSTM.
             dropout (float): Dropout probability.
         """
-        super(CaptioningStundent, self).__init__()
+        super(CaptioningStudent, self).__init__()
         
         # --- IMPROVED CNN ENCODER ---
         # Use EfficientNet-B0 instead of ResNet-50 for better efficiency
