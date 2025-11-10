@@ -406,11 +406,11 @@ def main():
                 
                 # Performance info
                 with st.expander("📊 Model Info"):
-                    st.write("**Architecture:** Same as Teacher")
-                    st.write("**Temperature Scaling:** 1.1 (reduces accuracy)")
-                    st.write("**Purpose:** Simulate lower accuracy student")
-                    st.write("**Method:** Multinomial sampling with temperature")
-                    st.write("**Speed:** Same as teacher")
+                    st.write("**Architecture:** CNN-LSTM")
+                    st.write("**Parameters:** ~8M (3x smaller)")
+                    st.write("**Encoder:** ResNet-50")
+                    st.write("**Decoder:** 2-layer LSTM")
+                    st.write("**Speed:** ~2-3x faster")
         else:
             if student_model is None:
                 st.warning("Student model not available")
